@@ -22,9 +22,16 @@ mod legacy_irq;
 use self::legacy_irq::LegacyIrq;
 #[cfg(feature = "kvm-msi-generic")]
 mod msi_generic;
+#[cfg(feature = "kvm-msi-irq")]
+mod msi_irq;
+#[cfg(feature = "kvm-msi-irq")]
+use self::msi_irq::MsiIrq;
 
 /// Maximum number of global interrupt sources.
 pub const MAX_IRQS: InterruptIndex = 1024;
+
+/// Default maximum number of Message Signaled Interrupts per device.
+pub const DEFAULT_MAX_MSI_IRQS_PER_DEVICE: InterruptIndex = 128;
 
 /// Structure to manage interrupt sources for a virtual machine based on the Linux KVM framework.
 ///
@@ -49,6 +56,7 @@ impl KvmIrqManager {
                 vmfd,
                 groups: HashMap::new(),
                 routes: Arc::new(KvmIrqRouting::new(vmfd2)),
+                max_msi_irqs: DEFAULT_MAX_MSI_IRQS_PER_DEVICE,
             }),
         }
     }
@@ -58,6 +66,12 @@ impl KvmIrqManager {
         // Safe to unwrap because there's no legal way to break the mutex.
         let mgr = self.mgr.lock().unwrap();
         mgr.initialize()
+    }
+
+    /// Set maximum supported MSI interrupts per device.
+    pub fn set_max_msi_irqs(&self, max_msi_irqs: InterruptIndex) {
+        let mut mgr = self.mgr.lock().unwrap();
+        mgr.max_msi_irqs = max_msi_irqs;
     }
 }
 
@@ -84,6 +98,7 @@ struct KvmIrqManagerObj {
     vmfd: Arc<VmFd>,
     routes: Arc<KvmIrqRouting>,
     groups: HashMap<InterruptIndex, Arc<Box<dyn InterruptSourceGroup>>>,
+    max_msi_irqs: InterruptIndex,
 }
 
 impl KvmIrqManagerObj {
@@ -104,6 +119,14 @@ impl KvmIrqManagerObj {
             InterruptSourceType::LegacyIrq => Arc::new(Box::new(LegacyIrq::new(
                 base,
                 count,
+                self.vmfd.clone(),
+                self.routes.clone(),
+            )?)),
+            #[cfg(feature = "kvm-msi-irq")]
+            InterruptSourceType::MsiIrq => Arc::new(Box::new(MsiIrq::new(
+                base,
+                count,
+                self.max_msi_irqs,
                 self.vmfd.clone(),
                 self.routes.clone(),
             )?)),
