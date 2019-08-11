@@ -16,3 +16,4 @@ vmm-sys-util = "~0"
 legacy-irq = []
 msi-irq = []
 kvm-irq = ["kvm-ioctls", "kvm-bindings"]
+kvm-legacy-irq = ["legacy-irq", "kvm-irq"]

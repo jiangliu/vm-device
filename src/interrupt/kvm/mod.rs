@@ -16,6 +16,11 @@ use kvm_ioctls::VmFd;
 
 use super::*;
 
+#[cfg(feature = "kvm-legacy-irq")]
+mod legacy_irq;
+#[cfg(feature = "kvm-legacy-irq")]
+use self::legacy_irq::LegacyIrq;
+
 /// Structure to manage interrupt sources for a virtual machine based on the Linux KVM framework.
 ///
 /// The KVM framework provides methods to inject interrupts into the target virtual machines,
@@ -90,6 +95,13 @@ impl KvmIrqManagerObj {
     ) -> Result<Arc<Box<dyn InterruptSourceGroup>>> {
         #[allow(unreachable_patterns)]
         let group: Arc<Box<dyn InterruptSourceGroup>> = match ty {
+            #[cfg(feature = "kvm-legacy-irq")]
+            InterruptSourceType::LegacyIrq => Arc::new(Box::new(LegacyIrq::new(
+                base,
+                count,
+                self.vmfd.clone(),
+                self.routes.clone(),
+            )?)),
             _ => return Err(Error::from(ErrorKind::InvalidInput)),
         };
 
@@ -132,6 +144,9 @@ impl KvmIrqRouting {
         // Safe to unwrap because there's no legal way to break the mutex.
         #[allow(unused_mut)]
         let mut routes = self.routes.lock().unwrap();
+
+        #[cfg(feature = "kvm-legacy-irq")]
+        LegacyIrq::initialize_legacy(&mut *routes)?;
 
         self.set_routing(&*routes)
     }
