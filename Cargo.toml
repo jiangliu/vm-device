@@ -7,3 +7,9 @@ license = "Apache-2.0"
 edition = "2018"
 
 [dependencies]
+libc = ">=0.2.39"
+vmm-sys-util = "~0"
+
+[features]
+legacy-irq = []
+msi-irq = []

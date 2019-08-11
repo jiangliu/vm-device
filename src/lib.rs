@@ -9,6 +9,7 @@ use std::cmp::{Ord, PartialOrd};
 use std::sync::Mutex;
 
 pub mod device_manager;
+pub mod interrupt;
 pub mod resources;
 
 use self::resources::DeviceResources;
