@@ -203,3 +203,8 @@ pub trait InterruptSourceGroup: Send + Sync {
         Ok(())
     }
 }
+
+#[cfg(feature = "kvm-irq")]
+mod kvm;
+#[cfg(feature = "kvm-irq")]
+pub use self::kvm::KvmIrqManager;
