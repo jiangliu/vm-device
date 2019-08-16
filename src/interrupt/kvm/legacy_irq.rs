@@ -156,3 +156,51 @@ impl InterruptSourceGroup for LegacyIrq {
         self.irqfd.write(1)
     }
 }
+
+#[cfg(test)]
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+mod test {
+    use super::*;
+    use kvm_ioctls::{Kvm, VmFd};
+
+    fn create_vm_fd() -> VmFd {
+        let kvm = Kvm::new().unwrap();
+        kvm.create_vm().unwrap()
+    }
+
+    #[test]
+    #[allow(unreachable_patterns)]
+    fn test_legacy_interrupt_group() {
+        let vmfd = Arc::new(create_vm_fd());
+        let rounting = Arc::new(KvmIrqRouting::new(vmfd.clone()));
+        let base = 0;
+        let count = 1;
+        let group = LegacyIrq::new(base, count, vmfd.clone(), rounting.clone()).unwrap();
+
+        let mut legacy_fds = Vec::with_capacity(1);
+        legacy_fds.push(InterruptSourceConfig::LegacyIrq(LegacyIrqSourceConfig {}));
+
+        match group.interrupt_type() {
+            InterruptSourceType::LegacyIrq => {}
+            _ => {
+                panic!();
+            }
+        }
+        assert_eq!(group.len(), 1);
+        assert_eq!(group.base(), base);
+        assert!(group.enable(&legacy_fds).is_ok());
+        assert!(group.notifier(0).unwrap().write(1).is_ok());
+        assert!(group.trigger(0).is_ok());
+        assert!(group.trigger(1).is_err());
+        assert!(group
+            .update(
+                0,
+                &InterruptSourceConfig::LegacyIrq(LegacyIrqSourceConfig {})
+            )
+            .is_ok());
+        assert!(group.disable().is_ok());
+
+        assert!(LegacyIrq::new(base, 2, vmfd.clone(), rounting.clone()).is_err());
+        assert!(LegacyIrq::new(110, 1, vmfd, rounting).is_err());
+    }
+}

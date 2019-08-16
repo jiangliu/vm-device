@@ -142,3 +142,82 @@ impl InterruptSourceGroup for MsiIrq {
         msi_config.irqfd.write(1)
     }
 }
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(test)]
+mod test {
+    use super::*;
+    use kvm_ioctls::{Kvm, VmFd};
+
+    fn create_vm_fd() -> VmFd {
+        let kvm = Kvm::new().unwrap();
+        kvm.create_vm().unwrap()
+    }
+
+    #[test]
+    #[allow(unreachable_patterns)]
+    fn test_msi_interrupt_group() {
+        let vmfd = Arc::new(create_vm_fd());
+        assert!(vmfd.create_irq_chip().is_ok());
+
+        let rounting = Arc::new(KvmIrqRouting::new(vmfd.clone()));
+        assert!(rounting.initialize().is_ok());
+
+        let base = 168;
+        let count = 32;
+        let group = MsiIrq::new(
+            base,
+            count,
+            DEFAULT_MAX_MSI_IRQS_PER_DEVICE,
+            vmfd.clone(),
+            rounting.clone(),
+        )
+        .unwrap();
+        let mut msi_fds = Vec::with_capacity(count as usize);
+
+        match group.interrupt_type() {
+            InterruptSourceType::MsiIrq => {}
+            _ => {
+                panic!();
+            }
+        }
+
+        for _ in 0..count {
+            let msi_source_config = MsiIrqSourceConfig {
+                high_addr: 0x1234,
+                low_addr: 0x5678,
+                data: 0x9876,
+            };
+            msi_fds.push(InterruptSourceConfig::MsiIrq(msi_source_config));
+        }
+
+        assert!(group.enable(&msi_fds).is_ok());
+        assert_eq!(group.len(), count);
+        assert_eq!(group.base(), base);
+
+        for i in 0..count {
+            let msi_source_config = MsiIrqSourceConfig {
+                high_addr: i + 0x1234,
+                low_addr: i + 0x5678,
+                data: i + 0x9876,
+            };
+            assert!(group.notifier(i).unwrap().write(1).is_ok());
+            assert!(group.trigger(i).is_ok());
+            assert!(group
+                .update(0, &InterruptSourceConfig::MsiIrq(msi_source_config))
+                .is_ok());
+        }
+        assert!(group.trigger(33).is_err());
+        assert!(group.disable().is_ok());
+
+        assert!(MsiIrq::new(
+            base,
+            DEFAULT_MAX_MSI_IRQS_PER_DEVICE + 1,
+            DEFAULT_MAX_MSI_IRQS_PER_DEVICE,
+            vmfd.clone(),
+            rounting.clone()
+        )
+        .is_err());
+        assert!(MsiIrq::new(1100, 1, DEFAULT_MAX_MSI_IRQS_PER_DEVICE, vmfd, rounting).is_err());
+    }
+}
