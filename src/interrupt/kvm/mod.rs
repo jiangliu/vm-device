@@ -20,6 +20,11 @@ use super::*;
 mod legacy_irq;
 #[cfg(feature = "kvm-legacy-irq")]
 use self::legacy_irq::LegacyIrq;
+#[cfg(feature = "kvm-msi-generic")]
+mod msi_generic;
+
+/// Maximum number of global interrupt sources.
+pub const MAX_IRQS: InterruptIndex = 1024;
 
 /// Structure to manage interrupt sources for a virtual machine based on the Linux KVM framework.
 ///
@@ -175,6 +180,46 @@ impl KvmIrqRouting {
             .map_err(from_sys_util_errno)?;
 
         Ok(())
+    }
+}
+
+#[cfg(feature = "kvm-msi-generic")]
+impl KvmIrqRouting {
+    pub(super) fn add(&self, entries: &[kvm_irq_routing_entry]) -> Result<()> {
+        // Safe to unwrap because there's no legal way to break the mutex.
+        let mut routes = self.routes.lock().unwrap();
+        for entry in entries {
+            if entry.gsi >= MAX_IRQS {
+                return Err(std::io::Error::from_raw_os_error(libc::EINVAL));
+            } else if routes.contains_key(&hash_key(entry)) {
+                return Err(std::io::Error::from_raw_os_error(libc::EEXIST));
+            }
+        }
+
+        for entry in entries {
+            let _ = routes.insert(hash_key(entry), *entry);
+        }
+        self.set_routing(&routes)
+    }
+
+    pub(super) fn remove(&self, entries: &[kvm_irq_routing_entry]) -> Result<()> {
+        // Safe to unwrap because there's no legal way to break the mutex.
+        let mut routes = self.routes.lock().unwrap();
+        for entry in entries {
+            let _ = routes.remove(&hash_key(entry));
+        }
+        self.set_routing(&routes)
+    }
+
+    pub(super) fn modify(&self, entry: &kvm_irq_routing_entry) -> Result<()> {
+        // Safe to unwrap because there's no legal way to break the mutex.
+        let mut routes = self.routes.lock().unwrap();
+        if !routes.contains_key(&hash_key(entry)) {
+            return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
+        }
+
+        let _ = routes.insert(hash_key(entry), *entry);
+        self.set_routing(&routes)
     }
 }
 
