@@ -54,11 +54,16 @@
 //! * the virtual device backend requests the interrupt manager to create an interrupt group
 //!   according to guest configuration information
 
+use std::io::Error;
+use std::ops::Deref;
 use std::sync::Arc;
 
 #[cfg(feature = "vfio-msi-irq")]
 use vfio_ioctls::VfioDevice;
 use vmm_sys_util::eventfd::EventFd;
+
+mod manager;
+pub use manager::{DeviceInterruptManager, DeviceInterruptMode, InterruptStatusRegister32};
 
 /// Reuse std::io::Result to simplify interoperability among crates.
 pub type Result<T> = std::io::Result<T>;
@@ -141,6 +146,24 @@ pub trait InterruptManager {
     /// before calling destroy_group(). This assumption helps to simplify InterruptSourceGroup
     /// implementations.
     fn destroy_group(&self, group: Arc<Box<dyn InterruptSourceGroup>>) -> Result<()>;
+}
+
+impl<T: InterruptManager> InterruptManager for Arc<T> {
+    fn create_group(
+        &self,
+        type_: InterruptSourceType,
+        base: u32,
+        count: u32,
+    ) -> std::result::Result<Arc<Box<dyn InterruptSourceGroup>>, Error> {
+        self.deref().create_group(type_, base, count)
+    }
+
+    fn destroy_group(
+        &self,
+        group: Arc<Box<dyn InterruptSourceGroup>>,
+    ) -> std::result::Result<(), Error> {
+        self.deref().destroy_group(group)
+    }
 }
 
 /// Trait to manage a group of interrupt sources for a device.
