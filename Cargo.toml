@@ -10,12 +10,15 @@ edition = "2018"
 libc = ">=0.2.39"
 kvm-bindings = { version = "~0", optional = true }
 kvm-ioctls = { version = "~0", optional = true }
+vfio-ioctls = { git = "https://github.com/cloud-hypervisor/vfio-ioctls.git", branch = "dragonball", optional = true }
 vmm-sys-util = "~0"
 
 [features]
 legacy-irq = []
 msi-irq = []
+vfio-msi-irq = []
 kvm-irq = ["kvm-ioctls", "kvm-bindings"]
 kvm-msi-generic = ["msi-irq", "kvm-irq"]
 kvm-legacy-irq = ["legacy-irq", "kvm-irq"]
 kvm-msi-irq = ["kvm-msi-generic"]
+kvm-vfio-msi-irq = ["kvm-msi-generic", "vfio-ioctls", "vfio-msi-irq"]

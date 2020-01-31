@@ -27,6 +27,11 @@ mod msi_irq;
 #[cfg(feature = "kvm-msi-irq")]
 use self::msi_irq::MsiIrq;
 
+#[cfg(feature = "kvm-vfio-msi-irq")]
+mod vfio_msi_irq;
+#[cfg(feature = "kvm-vfio-msi-irq")]
+use self::vfio_msi_irq::VfioMsiIrq;
+
 /// Maximum number of global interrupt sources.
 pub const MAX_IRQS: InterruptIndex = 1024;
 
@@ -130,6 +135,18 @@ impl KvmIrqManagerObj {
                 self.vmfd.clone(),
                 self.routes.clone(),
             )?)),
+            #[cfg(feature = "kvm-vfio-msi-irq")]
+            InterruptSourceType::VfioMsiIrq(vfio_device, vfio_index) => {
+                Arc::new(Box::new(VfioMsiIrq::new(
+                    base,
+                    count,
+                    self.max_msi_irqs,
+                    self.vmfd.clone(),
+                    self.routes.clone(),
+                    vfio_device,
+                    vfio_index,
+                )?))
+            }
             _ => return Err(Error::from(ErrorKind::InvalidInput)),
         };
 

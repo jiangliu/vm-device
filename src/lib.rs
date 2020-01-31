@@ -5,6 +5,9 @@
 
 //! rust-vmm device model.
 
+#[cfg(feature = "kvm-vfio-msi-irq")]
+extern crate vfio_ioctls;
+
 use std::cmp::{Ord, PartialOrd};
 use std::sync::Mutex;
 

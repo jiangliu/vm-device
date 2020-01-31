@@ -55,6 +55,9 @@
 //!   according to guest configuration information
 
 use std::sync::Arc;
+
+#[cfg(feature = "vfio-msi-irq")]
+use vfio_ioctls::VfioDevice;
 use vmm_sys_util::eventfd::EventFd;
 
 /// Reuse std::io::Result to simplify interoperability among crates.
@@ -64,7 +67,7 @@ pub type Result<T> = std::io::Result<T>;
 pub type InterruptIndex = u32;
 
 /// Type of interrupt source.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum InterruptSourceType {
     #[cfg(feature = "legacy-irq")]
     /// Legacy Pin-based Interrupt.
@@ -74,6 +77,9 @@ pub enum InterruptSourceType {
     /// Message Signaled Interrupt (PCI MSI/PCI MSIx etc).
     /// Some non-PCI devices (like HPET on x86) make use of generic MSI in platform specific ways.
     MsiIrq,
+    #[cfg(feature = "vfio-msi-irq")]
+    /// Message Signalled Interrupt for PCI MSI/PCI MSIx based VFIO devices.
+    VfioMsiIrq(Arc<VfioDevice>, u32),
 }
 
 /// Configuration data for an interrupt source.
