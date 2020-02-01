@@ -292,7 +292,7 @@ mod tests {
         resource.push(mmio);
         resource.push(irq);
 
-        assert!(io_mgr.register_device_io(dum.clone(), &resource).is_ok());
+        assert!(io_mgr.register_device_io(dum, &resource).is_ok());
         assert!(io_mgr.unregister_device_io(&resource).is_ok())
     }
 
