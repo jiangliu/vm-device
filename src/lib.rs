@@ -9,6 +9,8 @@ use std::sync::Mutex;
 pub mod device_manager;
 pub mod resources;
 
+use self::resources::DeviceResources;
+
 /// IO Size.
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct IoSize(pub u64);
@@ -193,6 +195,18 @@ pub trait DeviceIo: Send + Sync {
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     /// Write `data` to the guest physical address `base`, starting from `offset`.
     fn pio_write(&self, base: PioAddress, offset: PioAddress, data: &[u8]) {}
+
+    /// Get resources assigned to the device.
+    fn get_assigned_resources(&self) -> DeviceResources {
+        DeviceResources::new()
+    }
+
+    /// Get the IO resources which will be trapped by the DeviceManager.
+    ///
+    /// All none Mmio/Pio resources in the returned resource list will be ignored.
+    fn get_trapped_io_resources(&self) -> DeviceResources {
+        self.get_assigned_resources()
+    }
 }
 
 /// Device IO trait without interior mutability.
@@ -221,6 +235,18 @@ pub trait DeviceIoMut: Send {
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     /// Write `data` to the guest physical address `base`, starting from `offset`.
     fn pio_write(&mut self, base: PioAddress, offset: PioAddress, data: &[u8]) {}
+
+    /// Get resources assigned to the device.
+    fn get_assigned_resources(&self) -> DeviceResources {
+        DeviceResources::new()
+    }
+
+    /// Get the IO resources which will be trapped by the DeviceManager.
+    ///
+    /// All none Mmio/Pio resources in the returned resource list will be ignored.
+    fn get_trapped_io_resources(&self) -> DeviceResources {
+        self.get_assigned_resources()
+    }
 }
 
 impl<T: DeviceIoMut> DeviceIo for Mutex<T> {
@@ -244,6 +270,16 @@ impl<T: DeviceIoMut> DeviceIo for Mutex<T> {
     fn pio_write(&self, base: PioAddress, offset: PioAddress, data: &[u8]) {
         // Safe to unwrap() because we don't expect poisoned lock here.
         self.lock().unwrap().pio_write(base, offset, data)
+    }
+
+    fn get_assigned_resources(&self) -> DeviceResources {
+        // Safe to unwrap() because we don't expect poisoned lock here.
+        self.lock().unwrap().get_assigned_resources()
+    }
+
+    fn get_trapped_io_resources(&self) -> DeviceResources {
+        // Safe to unwrap() because we don't expect poisoned lock here.
+        self.lock().unwrap().get_trapped_io_resources()
     }
 }
 
