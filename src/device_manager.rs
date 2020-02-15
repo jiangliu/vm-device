@@ -18,6 +18,7 @@ use crate::{DeviceIo, IoAddress, IoSize};
 
 use std::cmp::{Ord, Ordering, PartialEq, PartialOrd};
 use std::collections::btree_map::BTreeMap;
+use std::ops::Deref;
 use std::result;
 use std::sync::Arc;
 
@@ -228,6 +229,82 @@ impl IoManager {
             }
         }
         None
+    }
+}
+
+/// Io manager transaction context to register/unregister devices.
+pub trait IoManagerContext {
+    /// Type of context object.
+    type Context;
+
+    /// Begin a transaction and return a context object.
+    ///
+    /// The returned context object must be passed to commit_tx() or cancel_tx() later.
+    fn begin_tx(&self) -> Self::Context;
+
+    /// Commit the transaction.
+    fn commit_tx(&self, ctx: Self::Context);
+
+    /// Cancel the transaction.
+    fn cancel_tx(&self, ctx: Self::Context);
+
+    /// Register a new device IO with its allocated resources.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx`: context object returned by begin_tx().
+    /// * `device`: device instance object to be registered
+    /// * `resources`: resources that this device owns, might include
+    ///                port I/O and memory-mapped I/O ranges, irq number, etc.
+    fn register_device_io(
+        &self,
+        ctx: &mut Self::Context,
+        device: Arc<dyn DeviceIo>,
+        resources: &[Resource],
+    ) -> Result<()>;
+
+    /// Unregister a device from `IoManager`, e.g. users specified removing.
+    /// VMM pre-fetches the resources e.g. dev.get_assigned_resources()
+    /// VMM is responsible for freeing the resources.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx`: context object returned by begin_tx().
+    /// * `resources`: resources that this device owns, might include
+    ///                port I/O and memory-mapped I/O ranges, irq number, etc.
+    fn unregister_device_io(&self, ctx: &mut Self::Context, resources: &[Resource]) -> Result<()>;
+}
+
+impl<T: IoManagerContext> IoManagerContext for Arc<T> {
+    type Context = T::Context;
+
+    fn begin_tx(&self) -> Self::Context {
+        self.deref().begin_tx()
+    }
+
+    fn commit_tx(&self, ctx: Self::Context) {
+        self.deref().commit_tx(ctx)
+    }
+
+    fn cancel_tx(&self, ctx: Self::Context) {
+        self.deref().cancel_tx(ctx)
+    }
+
+    fn register_device_io(
+        &self,
+        ctx: &mut Self::Context,
+        device: Arc<dyn DeviceIo>,
+        resources: &[Resource],
+    ) -> std::result::Result<(), Error> {
+        self.deref().register_device_io(ctx, device, resources)
+    }
+
+    fn unregister_device_io(
+        &self,
+        ctx: &mut Self::Context,
+        resources: &[Resource],
+    ) -> std::result::Result<(), Error> {
+        self.deref().unregister_device_io(ctx, resources)
     }
 }
 
