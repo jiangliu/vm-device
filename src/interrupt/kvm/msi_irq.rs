@@ -141,6 +141,53 @@ impl InterruptSourceGroup for MsiIrq {
         let msi_config = &self.msi_configs[index as usize];
         msi_config.irqfd.write(1)
     }
+
+    fn mask(&self, index: InterruptIndex) -> Result<()> {
+        if index >= self.count {
+            return Err(std::io::Error::from_raw_os_error(libc::EINVAL));
+        }
+
+        let irqfd = &self.msi_configs[index as usize].irqfd;
+        self.vmfd
+            .unregister_irqfd(irqfd, self.base + index)
+            .map_err(from_sys_util_errno)?;
+
+        Ok(())
+    }
+
+    fn unmask(&self, index: InterruptIndex) -> Result<()> {
+        if index >= self.count {
+            return Err(std::io::Error::from_raw_os_error(libc::EINVAL));
+        }
+
+        let irqfd = &self.msi_configs[index as usize].irqfd;
+        self.vmfd
+            .register_irqfd(irqfd, self.base + index)
+            .map_err(from_sys_util_errno)?;
+
+        Ok(())
+    }
+
+    fn get_pending_state(&self, index: InterruptIndex) -> bool {
+        if index >= self.count {
+            return false;
+        }
+
+        // Peak the EventFd.count by reading and writing back.
+        // The irqfd must be in NON-BLOCKING mode.
+        let irqfd = &self.msi_configs[index as usize].irqfd;
+        match irqfd.read() {
+            Err(_) => false,
+            Ok(count) => {
+                if count != 0 && irqfd.write(count).is_err() {
+                    // Hope the caller will handle the pending state corrrectly,
+                    // then no interrupt will be lost.
+                    //panic!("really no way to recover here!!!!");
+                }
+                count != 0
+            }
+        }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]

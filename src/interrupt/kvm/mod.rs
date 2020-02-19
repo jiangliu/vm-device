@@ -6,6 +6,61 @@
 //! When updaing KVM IRQ routing by ioctl(KVM_SET_GSI_ROUTING), all interrupts of the virtual
 //! machine must be updated all together. The [KvmIrqRouting](struct.KvmIrqRouting.html)
 //! structure is to maintain the global interrupt routing table.
+//!
+//! It deserves a good documentation about the way that KVM based vmms manages interrupts.
+//! From the KVM hypervisor side, it provides three mechanism to support injecting interrupts into
+//! guests:
+//! 1) Irqfd. When data is written to an irqfd, it triggers KVM to inject an interrupt into guest.
+//! 2) Irq routing. Irq routing determines the way to inject an irq into guest.
+//! 3) Signal MSI. Vmm can inject an MSI interrupt into guest by issuing KVM_SIGNAL_MSI ioctl.
+//!
+//! Most VMMs use irqfd + irq routing to support interrupt injecting, so we will focus on this mode.
+//! The flow to enable interrupt injecting is:
+//! 1) VMM creates an irqfd
+//! 2) VMM invokes KVM_IRQFD to bind the irqfd to an interrupt source
+//! 3) VMM invokes KVM_SET_GSI_ROUTING to configure the way to inject the interrupt into guest
+//! 4) device backend driver writes to the irqfd
+//! 5) an interurpt is injected into the guest
+//!
+//! So far so good, right? Let's move on to mask/unmask/get_pending_state. That's the real tough
+//! part. To support mask/unmask/get_peding_state, we must have a way to break the interrupt
+//! delivery chain and maintain the pending state. Let's see how it's implemented by each VMM.
+//! - Firecracker. It's very simple, it doesn't support mask/unmask/get_pending_state at all.
+//! - Cloud Hypervisor. It builds the interrupt delivery path as:
+//!    vhost-backend-driver -> EeventFd -> CLH -> Irqfd -> Irqrouting -> Guest OS
+//!   It also maintains a masked/pending pair for each interrupt. When masking an interrupt, it
+//!   sets the masked flag and remove IrqRouting for the interrupt.
+//!   The CLH design has two shortcomings:
+//!   - it's inefficient for the hot interrupt delivery path.
+//!   - it may lose in-flight interrupts after removing IRQ routing entry for an interrupt due irqfd
+//!     implementation details. Buy me a cup of coffee if you wants to knwo the detail.
+//! - Qemu. Qemu has a smart design, which supports:
+//!   - A fast path: driver -> irqfd -> Irqrouting -> Guest OS
+//!   - A slow path: driver -> eventfd -> qemu -> irqfd -> Irqrouting -> Guest OS
+//!   When masking an interrupt, it switches from fast path to slow path and vice versa when
+//!   unmasking an interrupt.
+//! - Dragonball V1. We doesn't support mask/unmask/get_pending_state at all, we have also enhanced
+//!   the Virtio MMIO spec, we could use the fast path: driver -> irqfd -> Irqrouting -> Guest OS.
+//! - Dragonball V2. When enabling PCI device passthrough, mask/unmask/get_pending_state is a must
+//!   to support PCI MSI/MSIx. Unlike Qemu fast path/slow path design, Dragonball V2 implements
+//!   mask/unmask/get_pending_state with fast path only. It works as follow:
+//!   1) When masking an interrupt, unbind the irqfd from the interrupt by KVM_IRQFD. After that,
+//!      all writes to the irqfd won't trigger injecting anymore, and irqfd maintains count for
+//!      following write operations.
+//!   2) When unmasking an interrupt, bind the irqfd to the interrupt again by KVM_IRQFD. When
+//!      rebinding, an interrupt will be injected into guest if the irqfd has a non-zero count.
+//!   3) When getting pending state, peek the count of the irqfd. But the irqfd doesn't support
+//!      peek, so simulate peek by reading and writing back the count read.
+//!   By this design, we use the irqfd count to maintain interrupt pending state, and auto-inject
+//!   pending interrupts when rebinding. So we don't need to maintain the pending status bit.
+//!
+//! Why Qemu needs a slow path but Dragonball V2 doesn't need slow path?
+//! Qemu needs to support a broad ranges of guest OSes and all kinds of device drivers. And some
+//! legacy device drivers mask/unmask interrupt when handling each interrupt.
+//! For Dragonball, we don't expect guest device driver exhibits such behaviors, and treat
+//! mask/unmask/get_pending_state as cold path. We optimize for the hot interrupt delivery path
+//! and avoid the complexity to introduce a slow path. The penalty is that get_pending_state()
+//! will be much more expensive.
 
 use std::collections::HashMap;
 use std::io::{Error, ErrorKind};

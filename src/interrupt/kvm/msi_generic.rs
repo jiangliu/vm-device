@@ -4,6 +4,7 @@
 //! Helper utilities for handling MSI interrupts.
 
 use kvm_bindings::{kvm_irq_routing_entry, KVM_IRQ_ROUTING_MSI};
+use vmm_sys_util::eventfd::EFD_NONBLOCK;
 
 use super::*;
 
@@ -15,7 +16,7 @@ pub(super) struct MsiConfig {
 impl MsiConfig {
     pub(super) fn new() -> Self {
         MsiConfig {
-            irqfd: EventFd::new(0).unwrap(),
+            irqfd: EventFd::new(EFD_NONBLOCK).unwrap(),
             config: Mutex::new(Default::default()),
         }
     }

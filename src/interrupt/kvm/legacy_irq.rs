@@ -11,6 +11,7 @@ use super::*;
 use kvm_bindings::{
     KVM_IRQCHIP_IOAPIC, KVM_IRQCHIP_PIC_MASTER, KVM_IRQCHIP_PIC_SLAVE, KVM_IRQ_ROUTING_IRQCHIP,
 };
+use vmm_sys_util::eventfd::EFD_NONBLOCK;
 
 /// Maximum number of legacy interrupts supported.
 pub const MAX_LEGACY_IRQS: u32 = 24;
@@ -40,7 +41,7 @@ impl LegacyIrq {
         Ok(LegacyIrq {
             base,
             vmfd,
-            irqfd: EventFd::new(0)?,
+            irqfd: EventFd::new(EFD_NONBLOCK)?,
         })
     }
 
@@ -154,6 +155,53 @@ impl InterruptSourceGroup for LegacyIrq {
             return Err(std::io::Error::from_raw_os_error(libc::EINVAL));
         }
         self.irqfd.write(1)
+    }
+
+    fn mask(&self, index: InterruptIndex) -> Result<()> {
+        if index > 1 {
+            return Err(std::io::Error::from_raw_os_error(libc::EINVAL));
+        }
+
+        let irqfd = &self.irqfd;
+        self.vmfd
+            .unregister_irqfd(irqfd, self.base + index)
+            .map_err(from_sys_util_errno)?;
+
+        Ok(())
+    }
+
+    fn unmask(&self, index: InterruptIndex) -> Result<()> {
+        if index > 1 {
+            return Err(std::io::Error::from_raw_os_error(libc::EINVAL));
+        }
+
+        let irqfd = &self.irqfd;
+        self.vmfd
+            .register_irqfd(irqfd, self.base + index)
+            .map_err(from_sys_util_errno)?;
+
+        Ok(())
+    }
+
+    fn get_pending_state(&self, index: InterruptIndex) -> bool {
+        if index > 1 {
+            return false;
+        }
+
+        // Peak the EventFd.count by reading and writing back.
+        // The irqfd must be in NON-BLOCKING mode.
+        let irqfd = &self.irqfd;
+        match irqfd.read() {
+            Err(_) => false,
+            Ok(count) => {
+                if count != 0 && irqfd.write(count).is_err() {
+                    // Hope the caller will handle the pending state corrrectly,
+                    // then no interrupt will be lost.
+                    //panic!("really no way to recover here!!!!");
+                }
+                count != 0
+            }
+        }
     }
 }
 

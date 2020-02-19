@@ -208,6 +208,11 @@ pub trait InterruptSourceGroup: Send + Sync {
         // To accommodate this, we can have a no-op here.
         Ok(())
     }
+
+    /// Check whether there's pending interrupt.
+    fn get_pending_state(&self, _index: InterruptIndex) -> bool {
+        false
+    }
 }
 
 #[cfg(feature = "kvm-irq")]
